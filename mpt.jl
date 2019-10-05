@@ -1,23 +1,24 @@
 module MPT
 
 # Modern Portfolio Theory
-export trade_off_problem, expectation_maximization, variance_minimization, minimum_variance
 
-# Trade-off Problem Portfolio
-function trade_off_problem(v, c, mu, sigma; r = nothing)
+export mean_variance, expectation_maximization, variance_minimization, minimum_variance
+
+# Mean Variance Portfolio (Trade-off Problem)
+function mean_variance(v, lambda, mu, sigma; r = nothing)
     n = size(sigma)[1]
     o = ones(n, 1)
     sigma_inv = inv(sigma)
 
     if isnothing(r)
-        lambda = (transpose(mu) * sigma_inv * o - c) / (transpose(o) * sigma_inv * o)
-        lambda = max(lambda, 0)
+        multiplier = (transpose(mu) * sigma_inv * o - lambda) / (transpose(o) * sigma_inv * o)
+        multiplier = max(multiplier, 0)
 
-        w = (v / c) * sigma_inv * (mu - lambda * o)
+        w = (v / lambda) * sigma_inv * (mu - multiplier * o)
 
         return 0, w
     else
-        w = (v / c) * sigma_inv * (mu - r * o)
+        w = (v / lambda) * sigma_inv * (mu - r * o)
         w_r = v - (transpose(w) * o)[1]
 
         return w_r, w
