@@ -8,7 +8,7 @@ include("capm.jl")
 
 using Statistics, .MPT, .CAPM, .Utils
 
-export allocation
+export allocate
 
 # Black-Litterman
 function black_litterman(P, Q, sigma, theta, tau)
@@ -23,8 +23,8 @@ function black_litterman(P, Q, sigma, theta, tau)
     return mu_bl, sigma_bl
 end
 
-# Portfolio Allocation 
-function allocation(R_historic, R_market, risk_free_rate, P, Q, tau, w)
+# Allocate portfolio 
+function allocate(R_historic, R_market, risk_free_rate, P, Q, tau, w)
     lambda = risk_aversion_coefficient(R_market, risk_free_rate)
     sigma = sample_sigma(R_historic)
     theta = implied_returns(R_market, risk_free_rate, sigma, w)
@@ -42,7 +42,7 @@ function test()
     tau = 0.05
     w = [0.5; 0.5]
 
-    return allocation(R_historic, R_market, risk_free_rate, P, Q, tau, w)
+    return allocate(R_historic, R_market, risk_free_rate, P, Q, tau, w)
 end
 
 end

@@ -8,7 +8,7 @@ using Statistics, .Utils
 
 export implied_returns
 
-# Implied Returns (CAPM)
+# Implied returns (CAPM)
 function implied_returns(R, r, sigma, w)
     lambda = risk_aversion_coefficient(R, r)
 
