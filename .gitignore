@@ -6,3 +6,6 @@ deps/deps.jl
 # macOS
 .DS_Store
 .vscode
+
+# Plots
+*.svg
