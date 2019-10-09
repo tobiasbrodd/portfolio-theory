@@ -7,20 +7,40 @@ include("utils.jl")
 using DataFrames, Dates, Printf, LinearAlgebra, Statistics, Gadfly, .CAPM, .BL, .Utils
 
 function black_litterman_strategy(tickers, assets, market, initial_capital, first_date)
-    date = first_date
+    shares = get_initial_shares(tickers, assets)
+    dates = get_dates(first_date)
 
-    w_r, w = calculate_weights(tickers, assets, market, date)
-    w_r /= 10000
-    w /= 10000
+    for date in dates
+        println(date)
 
-    println("Risk-free weight:", w_r)
-    println("Risky weights:", w)
+        w_r, w = calculate_weights(tickers, assets, market, date)
+        d = maximum(abs.([w_r; w]))
+        w_r /= d
+        w /= d
 
-    prices = assets[assets.Date .>= date, :]
-    shares = calculate_shares(tickers, prices, initial_capital, w_r, w)
+        println("Risk-free weight: ", w_r)
+        println("Risky weights: ", w)
+
+        prices = assets[assets.Date .>= date, :]
+        shares[shares.Date .>= date, :] .= calculate_shares(tickers, prices, initial_capital, w_r, w)
+    end
+
+    prices = assets[assets.Date .>= first_date, :]
     signals = calculate_signals(tickers, shares)
     
     return prices, shares, signals
+end
+
+function get_dates(first_date)
+    dates = [first_date]
+    end_date = dates[end]
+    
+    while end_date < (assets.Date[end] - Dates.Month(1))
+        end_date = dates[end] + Dates.Month(1)
+        push!(dates, end_date)
+    end
+
+    return dates
 end
 
 function calculate_weights(tickers, assets, market, date)
@@ -37,14 +57,28 @@ function calculate_weights(tickers, assets, market, date)
     return allocate(historical_returns_matrix, market_returns, risk_free_rate, P, Q, tau, w_market)
 end
 
+function get_initial_shares(tickers, assets)
+    shares = DataFrame(Date = assets[assets.Date .>= first_date, :Date])
+    
+    for ticker in tickers
+        sym = Symbol(ticker)
+        shares[!, sym] = zeros(size(shares, 1),)
+    end
+
+    shares[!, :Bond] = zeros(size(shares, 1),)
+
+    return shares
+end
+
 function calculate_shares(tickers, prices, initial_capital, w_r, w)
-    shares = deepcopy(prices)
+    shares = DataFrame(Date = prices.Date)
+
     for i in 1:length(tickers)
         sym = Symbol(tickers[i])
         c = initial_capital * w[i]
         s = floor(c / prices[1, sym])
 
-        shares[!,sym] = ones(nrow(shares),) * s
+        shares[!, sym] = ones(nrow(shares),) * s
     end
 
     c = initial_capital * w_r
@@ -55,6 +89,7 @@ end
 
 function calculate_signals(tickers, shares)
     signals = deepcopy(shares)
+
     for ticker in tickers
         sym = Symbol(ticker)
         signals[2:end, sym] = diff(signals[:, sym])
