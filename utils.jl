@@ -4,7 +4,7 @@ module Utils
 
 using DataFrames, CSV, DelimitedFiles, Statistics, Missings
 
-export risk_aversion_coefficient, sample_sigma, get_prices, calculate_returns, get_dataframe, format_stock_csv, format_index_csv
+export risk_aversion_coefficient, sample_sigma, get_prices, calculate_daily_ticker_returns, calculate_daily_returns, calculate_returns, get_dataframe, format_stock_csv, format_index_csv
 
 # Risk averision coefficient
 function risk_aversion_coefficient(R, r)
@@ -37,15 +37,27 @@ function get_prices(tickers)
 end
 
 # Get returns
-function calculate_returns(prices, tickers)
+function calculate_daily_ticker_returns(prices, tickers)
     returns = DataFrame(Date = prices.Date)
 
     for ticker in tickers
         col = Symbol(ticker)
-        returns[!, col] = [1.0; prices[2:end,col] ./ prices[1:end-1,col]] 
+        returns[!, col] = calculate_daily_returns(prices, col)
     end
 
     return returns
+end
+
+# Calculate daily returns
+function calculate_daily_returns(prices, col)
+    return [1.0; prices[2:end,col] ./ prices[1:end-1,col]] 
+end
+
+# Calculate returns (cumulative)
+function calculate_returns(prices, col)
+    daily_returns = calculate_daily_returns(prices, col)
+
+    return cumprod(daily_returns)
 end
 
 # Get CSV dataframe
