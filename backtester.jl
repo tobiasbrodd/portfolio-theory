@@ -4,16 +4,40 @@ include("bl.jl")
 include("capm.jl")
 include("utils.jl")
 
-using DataFrames, Dates, LinearAlgebra, Statistics, Gadfly, .CAPM, .BL, .Utils
+using DataFrames, Dates, Printf, LinearAlgebra, Statistics, Gadfly, .CAPM, .BL, .Utils
 
-function black_litterman_strategy(prices, tickers, historic_returns, market_returns, risk_free_rate, P, Q, tau, w_market, initial_capital)
-    w_r, w = allocate(historic_returns, market_returns, risk_free_rate, P, Q, tau, w_market)
+function black_litterman_strategy(tickers, assets, market, initial_capital, first_date)
+    date = first_date
 
+    w_r, w = calculate_weights(tickers, assets, market, date)
     w_r /= 10000
     w /= 10000
 
-    println(w_r, w)
+    println("Risk-free weight:", w_r)
+    println("Risky weights:", w)
 
+    prices = assets[assets.Date .>= date, :]
+    shares = calculate_shares(tickers, prices, initial_capital, w_r, w)
+    signals = calculate_signals(tickers, shares)
+    
+    return prices, shares, signals
+end
+
+function calculate_weights(tickers, assets, market, date)
+    risk_free_rate = 1.0
+    tau = 0.05
+
+    future_prices, _, _, historical_returns = get_assets_data(tickers, assets, risk_free_rate, date)
+    _, _, w_market, market_returns = get_market_data(tickers, market, date)
+
+    P, Q = get_views(tickers, historical_returns)
+
+    historical_returns_matrix = convert(Matrix, historical_returns[:, 2:end])
+    
+    return allocate(historical_returns_matrix, market_returns, risk_free_rate, P, Q, tau, w_market)
+end
+
+function calculate_shares(tickers, prices, initial_capital, w_r, w)
     shares = deepcopy(prices)
     for i in 1:length(tickers)
         sym = Symbol(tickers[i])
@@ -24,96 +48,127 @@ function black_litterman_strategy(prices, tickers, historic_returns, market_retu
     end
 
     c = initial_capital * w_r
-    s = floor(c / prices[1, :Bond])
-    shares[!,:Bond] = ones(nrow(shares),) * s
+    shares[!,:Bond] = ones(nrow(shares),) * floor(c)
 
+    return shares
+end
+
+function calculate_signals(tickers, shares)
     signals = deepcopy(shares)
-    for i in 1:length(tickers)
-        sym = Symbol(tickers[i])
+    for ticker in tickers
+        sym = Symbol(ticker)
         signals[2:end, sym] = diff(signals[:, sym])
     end
 
     signals[2:end, :Bond] = diff(signals[:, :Bond])
 
-    return shares, signals
+    return signals
 end
 
-function portfolio(prices, shares, signals, tickers, initial_capital)
-    p = DataFrame(Date = prices.Date)
+function get_portfolio(tickers, prices, shares, signals, initial_capital)
+    portfolio = DataFrame(Date = prices.Date)
 
-    p[!, :Holdings] = zeros(nrow(p),)
-    for i in 1:length(tickers)
-        sym = Symbol(tickers[i])
-        p.Holdings += shares[:, sym] .* prices[:, sym]
+    portfolio[!, :Holdings] = zeros(nrow(portfolio),)
+    for ticker in tickers
+        sym = Symbol(ticker)
+        portfolio.Holdings += shares[:, sym] .* prices[:, sym]
     end
 
-    p.Holdings += shares[:, :Bond] .* prices[:, :Bond]
+    portfolio.Holdings += shares[:, :Bond]
 
-    p[!, :Cash] = ones(nrow(p),) * initial_capital
-    for i in 1:length(tickers)
-        sym = Symbol(tickers[i])
-        p.Cash -= cumsum(signals[:, sym] .* prices[:, sym])
+    portfolio[!, :Cash] = ones(nrow(portfolio),) * initial_capital
+    for ticker in tickers
+        sym = Symbol(ticker)
+        portfolio.Cash -= cumsum(signals[:, sym] .* prices[:, sym])
     end
 
-    p.Cash -= cumsum(signals[:, :Bond] .* prices[:, :Bond])
+    portfolio.Cash -= cumsum(signals[:, :Bond])
 
-    p[!, :Total] = p.Holdings .+ p.Cash
-    p[!, :Returns] = (cumprod([1.0; p.Total[2:end] ./ p.Total[1:end-1]]) .- 1) * 100
+    portfolio[!, :Total] = portfolio.Holdings .+ portfolio.Cash
+    portfolio[!, :DailyReturns] = (calculate_daily_returns(portfolio, :Total) .- 1) * 100
+    portfolio[!, :Returns] = (calculate_returns(portfolio, :Total) .- 1) * 100
 
-    return p
+    return portfolio
 end
 
-function plot_perfomance(p, index)
-    strategy = layer(p, x=:Date, y=:Returns, Geom.line, Theme(default_color="blue"))
-
-    strategy_p = plot(strategy, Theme(key_position=:none), Guide.xlabel("Time"), Guide.ylabel("Return (%)"), Guide.title("Black-Litterman"))
-    strategy_p |> SVG("plots/black_litterman.svg", 15inch, 8inch)
-
-    market = layer(index, x=:Date, y=:Returns, Geom.line, Theme(default_color="black"))
-
-    market_p = plot(market, Theme(key_position=:none), Guide.xlabel("Time"), Guide.ylabel("Return (%)"), Guide.title("Market"))
-    market_p |> SVG("plots/market.svg", 15inch, 8inch)
-
-    comparison_p = plot(strategy, market, Theme(key_position=:none), Guide.xlabel("Time"), Guide.ylabel("Return (%)"), Guide.title("Comparison"))
-    comparison_p |> SVG("plots/comparison.svg", 15inch, 8inch)
+function print_performance(portfolio)
+    @printf "Return: %.2f%%\n" portfolio.Returns[end]
+    @printf "Average daily return: %.2f%%\n" mean(portfolio.DailyReturns)
 end
 
+function plot_perfomance(portfolio, market)
+    strategy_layer = layer(portfolio, x=:Date, y=:Returns, Geom.line, Theme(default_color="blue"))
+    market_layer = layer(market, x=:Date, y=:Returns, Geom.line, Theme(default_color="black"))
+
+    strategy_plot = plot(strategy_layer, Theme(key_position=:none), Guide.xlabel("Time"), Guide.ylabel("Return (%)"), Guide.title("Black-Litterman"))
+    strategy_plot |> SVG("plots/black_litterman.svg", 15inch, 8inch)
+
+    market_plot = plot(market_layer, Theme(key_position=:none), Guide.xlabel("Time"), Guide.ylabel("Return (%)"), Guide.title("Market"))
+    market_plot |> SVG("plots/market.svg", 15inch, 8inch)
+
+    comparison_plot = plot(strategy_layer, market_layer, Theme(key_position=:none), Guide.xlabel("Time"), Guide.ylabel("Return (%)"), Guide.title("Comparison"))
+    comparison_plot |> SVG("plots/comparison.svg", 15inch, 8inch)
+end
+
+function get_assets_data(tickers, assets, risk_free_rate, date)
+    # Get historical prices
+    historical_prices = assets[assets.Date .< date, :]
+    historical_returns = calculate_daily_ticker_returns(historical_prices, tickers)
+
+    # Get future prices
+    future_prices = assets[assets.Date .>= date, :]
+    future_returns = calculate_daily_ticker_returns(future_prices, tickers)
+
+    return future_prices, future_returns, historical_prices, historical_returns
+end
+
+function get_market_data(tickers, market, date)
+    # Get market weights
+    w_market = ones(length(tickers),) ./ length(tickers)
+
+    # Get historical market
+    historical_market = market[market.Date .< date, :]
+    historical_market[!, :Returns] = (calculate_returns(historical_market, :Prices) .- 1) * 100
+
+    # Get future market
+    future_market = market[market.Date .>= date, :]
+    future_market[!, :Returns] = (calculate_returns(future_market, :Prices) .- 1) * 100
+
+    # Get market returns
+    market_returns = calculate_daily_returns(historical_market, :Prices)
+
+    return future_market, historical_market, w_market, market_returns
+end
+
+function get_views(tickers, historical_returns)
+    historical_returns_matrix = convert(Matrix, historical_returns[:, 2:end])
+
+    P = Matrix(I, length(tickers), length(tickers))
+    Q = transpose(convert(Matrix, historical_returns_matrix[end:end,:]))
+
+    return P, Q
+end
+
+# Get asset prices
 tickers = ["HM_B", "NDA_SE", "TELIA"]
-index_ticker = "OMXS30"
+assets = get_prices(tickers)
 
+# Get market weights
 w_market = ones(length(tickers),) ./ length(tickers)
 
-prices = get_prices(tickers)
-historic_prices = prices[1:1100, :]
-historic_returns = calculate_returns(historic_prices, tickers)
-historic_returns_matrix = convert(Matrix, historic_returns[:, 2:end])
-prices = prices[1101:end, :]
-returns = calculate_returns(prices, tickers)
-returns_matrix = convert(Matrix, returns[:, 2:end])
-
-historic_index = DataFrame(Date = historic_prices.Date)
-historic_index[!, :DailyReturns] = historic_returns_matrix * w_market
-historic_index[!, :Returns] = (cumprod(historic_index.DailyReturns) .- 1) * 100
-index = DataFrame(Date = prices.Date)
-index[!, :DailyReturns] = returns_matrix * w_market
-index[!, :Returns] = (cumprod(index.DailyReturns) .- 1) * 100
-
-market_returns = historic_index.DailyReturns
-risk_free_rate = 1.0
-tau = 0.05
-
-P = Matrix(I, length(tickers), length(tickers))
-Q = transpose(convert(Matrix, historic_returns_matrix[end:end,:]))
-
-prices[!, :Bond] = ones(nrow(prices),)
-returns[!, :Bond] = ones(nrow(returns),) * risk_free_rate
+# Get market
+market = DataFrame(Date = assets.Date)
+price_matrix = convert(Matrix, assets[:, 2:end])
+market[!, :Prices] = price_matrix * w_market
 
 initial_capital = 1000
+first_date = Dates.Date(2014, 1, 1)
 
-shares, signals = black_litterman_strategy(prices, tickers, historic_returns_matrix, market_returns, risk_free_rate, P, Q, tau, w_market, initial_capital)
-p = portfolio(prices, shares, signals, tickers, initial_capital)
+prices, shares, signals = black_litterman_strategy(tickers, assets, market, initial_capital, first_date)
+portfolio= get_portfolio(tickers, prices, shares, signals, initial_capital)
 
-plot_perfomance(p, index)
-println(p.Returns[end])
+future_market, _, _, _ = get_market_data(tickers, market, first_date)
+print_performance(portfolio)
+plot_perfomance(portfolio, future_market)
 
 end
