@@ -30,7 +30,8 @@ function allocate(R_historic, R_market, risk_free_rate, P, Q, tau, w)
     theta = implied_returns(R_market, risk_free_rate, sigma, w)
     mu_bl, sigma_bl = black_litterman(P, Q, sigma, theta, tau)
     
-    return mean_variance(1, lambda, mu_bl, sigma_bl; r = risk_free_rate)
+    # return mean_variance(1, lambda, mu_bl, sigma_bl; r = risk_free_rate)
+    return mean_variance_long(1, lambda, mu_bl, sigma_bl; r = risk_free_rate)
 end
 
 function test()

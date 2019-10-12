@@ -2,7 +2,9 @@ module MPT
 
 # Modern Portfolio Theory
 
-export mean_variance, expectation_maximization, variance_minimization, minimum_variance
+using JuMP, Ipopt
+
+export mean_variance, mean_variance_long, expectation_maximization, variance_minimization, minimum_variance
 
 # Mean Variance Portfolio (Trade-off Problem)
 function mean_variance(v, lambda, mu, sigma; r = nothing)
@@ -22,6 +24,29 @@ function mean_variance(v, lambda, mu, sigma; r = nothing)
         w_r = v - (transpose(w) * o)[1]
 
         return w_r, w
+    end
+end
+
+
+# Mean Variance Portfolio (Trade-off Problem) - Long Positions Only
+function mean_variance_long(v, lambda, mu, sigma; r = nothing)
+    n = size(mu, 1)
+    m = Model(with_optimizer(Ipopt.Optimizer))
+
+    @variable(m, 0 <= w[1:n] <= 1)
+    @NLobjective(m, Max, sum(w[i] * mu[i] for i=1:n) + sum(w[j] * sum(sigma[i,j] * w[i] for i=1:n) for j=1:n))
+
+    if isnothing(r)
+        @constraint(m, sum(w[i] for i=1:n) == v)
+        optimize!(m)
+
+        return value.(w)
+    else
+        @variable(m, 0 <= w_r <= 1)
+        @constraint(m, w_r + sum(w[i] for i=1:n) == v)
+        optimize!(m)
+
+        return value(w_r), value.(w)
     end
 end
 
