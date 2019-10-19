@@ -15,8 +15,6 @@ function black_litterman_strategy(tickers, assets, market, initial_capital, firs
 
         w_r, w = calculate_weights(tickers, assets, market, date)
         d = maximum(abs.([w_r; w]))
-        w_r /= d
-        w /= d
 
         println("Risk-free weight: ", w_r)
         println("Risky weights: ", w)
@@ -44,7 +42,7 @@ function get_dates(first_date)
 end
 
 function calculate_weights(tickers, assets, market, date)
-    risk_free_rate = 1.0
+    risk_free_rate = 1.05
     tau = 0.05
 
     future_prices, _, _, historical_returns = get_assets_data(tickers, assets, risk_free_rate, date)
@@ -53,6 +51,11 @@ function calculate_weights(tickers, assets, market, date)
     P, Q = get_views(tickers, historical_returns)
 
     historical_returns_matrix = convert(Matrix, historical_returns[:, 2:end])
+
+    Q .-= 1
+    historical_returns_matrix .-= 1
+    market_returns .-= 1
+    risk_free_rate -= 1
     
     return allocate(historical_returns_matrix, market_returns, risk_free_rate, P, Q, tau, w_market)
 end
