@@ -4,10 +4,14 @@ module MPT
 
 using JuMP, Ipopt
 
-export mean_variance, mean_variance_long, expectation_maximization, variance_minimization, minimum_variance
+export mean_variance, mean_variance_long, expectation_maximization, expectation_maximization_long, variance_minimization, variance_minimization_long, minimum_variance
 
 # Mean Variance Portfolio (Trade-off Problem)
 function mean_variance(v, lambda, mu, sigma; r = nothing)
+    if lambda <= 0
+        return 1.0, zeros(size(mu))
+    end
+
     n = size(sigma)[1]
     o = ones(n, 1)
     sigma_inv = inv(sigma)
@@ -30,21 +34,26 @@ end
 
 # Mean Variance Portfolio (Trade-off Problem) - Long Positions Only
 function mean_variance_long(v, lambda, mu, sigma; r = nothing)
-    n = size(mu, 1)
-    m = Model(with_optimizer(Ipopt.Optimizer))
+    if lambda <= 0
+        return 1.0, zeros(size(mu))
+    end
 
-    @variable(m, 0 <= w[1:n] <= 1)
-    @NLobjective(m, Max, sum(w[i] * mu[i] for i=1:n) + sum(w[j] * sum(sigma[i,j] * w[i] for i=1:n) for j=1:n))
+    n = size(mu, 1)
+    model = Model(with_optimizer(Ipopt.Optimizer, print_level=0))
+
+    @variable(model, 0 <= w[1:n] <= 1)
 
     if isnothing(r)
-        @constraint(m, sum(w[i] for i=1:n) == v)
-        optimize!(m)
+        @NLobjective(model, Max, sum(w[i] * mu[i] for i=1:n) + 0.5 * (lambda / v) * sum(w[j] * sum(sigma[i,j] * w[i] for i=1:n) for j=1:n))
+        @constraint(model, sum(w[i] for i=1:n) == v)
+        optimize!(model)
 
         return value.(w)
     else
-        @variable(m, 0 <= w_r <= 1)
-        @constraint(m, w_r + sum(w[i] for i=1:n) == v)
-        optimize!(m)
+        @variable(model, 0 <= w_r <= 1)
+        @NLobjective(model, Max, w_r * r + sum(w[i] * mu[i] for i=1:n) + 0.5 * (lambda / v) * sum(w[j] * sum(sigma[i,j] * w[i] for i=1:n) for j=1:n))
+        @constraint(model, w_r + sum(w[i] for i=1:n) == v)
+        optimize!(model)
 
         return value(w_r), value.(w)
     end
@@ -63,6 +72,23 @@ function expectation_maximization(v, s, r, mu, sigma)
     return w_r, w
 end
 
+# Expectation Maximazation Portfolio - Long Positions Only
+function expectation_maximization_long(v, s, r, mu, sigma)
+    n = size(mu, 1)
+    model = Model(with_optimizer(Ipopt.Optimizer, print_level=0))
+    set_silent(model)
+
+    @variable(model, 0 <= w[1:n] <= 1)
+    @variable(model, 0 <= w_r <= 1)
+
+    @NLobjective(model, Max, w_r * r + sum(w[i] * mu[i] for i=1:n))
+    @constraint(model, w_r + sum(w[i] for i=1:n) == v)
+    @constraint(model, sum(w[j] * sum(sigma[i,j] * w[i] for i=1:n) for j=1:n) <= s)
+    optimize!(model)
+
+    return value(w_r), value.(w)
+end
+
 # Variance Minimization Portfolio
 function variance_minimization(v, m, r, mu, sigma)
     n = size(sigma)[1]
@@ -74,6 +100,23 @@ function variance_minimization(v, m, r, mu, sigma)
     w_r = v - (transpose(w) * o)[1]
 
     return w_r, w
+end
+
+# Variance Minimization Portfolio - Long Positions Only
+function variance_minimization_long(v, m, r, mu, sigma)
+    n = size(mu, 1)
+    model = Model(with_optimizer(Ipopt.Optimizer, print_level=0))
+    set_silent(model)
+
+    @variable(model, 0 <= w[1:n] <= 1)
+    @variable(model, 0 <= w_r <= 1)
+
+    @NLobjective(model, Min, sum(w[j] * sum(sigma[i,j] * w[i] for i=1:n) for j=1:n))
+    @constraint(model, w_r + sum(w[i] for i=1:n) == v)
+    @constraint(model, w_r * r + sum(w[i] * mu[i] for i=1:n) >= m)
+    optimize!(model)
+
+    return value(w_r), value.(w)
 end
 
 # Minimum Variance Portfolio
