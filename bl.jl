@@ -17,7 +17,7 @@ function black_litterman(P, Q, sigma, theta, tau)
     c = 1 / tau
     omega = (1 / c) * P * sigma * P_transpose
 
-    mu_bl = inv(sigma_mu_inv + P_transpose * omega * P) * (sigma_mu_inv * theta + P_transpose * omega * Q)
+    mu_bl = inv(sigma_mu_inv + P_transpose * omega * P) * (sigma_mu_inv * theta + P_transpose * Q)
     sigma_bl = (1 + tau) * sigma - tau^2 * sigma * P_transpose * inv(tau * P * sigma * P_transpose + omega) * P * sigma
 
     return mu_bl, sigma_bl
@@ -26,12 +26,12 @@ end
 # Allocate portfolio 
 function allocate(R_historic, R_market, risk_free_rate, P, Q, tau, w)
     lambda = risk_aversion_coefficient(R_market, risk_free_rate)
-    sigma = sample_sigma(R_historic)
+    sigma = cov(R_historic)
     theta = implied_returns(R_market, risk_free_rate, sigma, w)
     mu_bl, sigma_bl = black_litterman(P, Q, sigma, theta, tau)
     
-    # return mean_variance(1, lambda, mu_bl, sigma_bl; r = risk_free_rate)
-    return mean_variance_long(1, lambda, mu_bl, sigma_bl; r = risk_free_rate)
+    return mean_variance(1, abs(lambda), mu_bl, sigma_bl; r = risk_free_rate)
+    # return mean_variance_long(1, abs(lambda), mu_bl, sigma_bl; r = risk_free_rate)
 end
 
 function test()
