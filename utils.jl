@@ -4,7 +4,7 @@ module Utils
 
 using DataFrames, CSV, DelimitedFiles, Statistics, Missings
 
-export risk_aversion_coefficient, sample_sigma, get_prices, calculate_daily_ticker_returns, calculate_daily_returns, calculate_returns, get_dataframe, format_stock_csv, format_index_csv
+export risk_aversion_coefficient, sample_sigma, get_prices, get_market, calculate_daily_ticker_returns, calculate_daily_returns, calculate_returns, get_dataframe, format_stock_csv, format_index_csv
 
 # Risk averision coefficient
 function risk_aversion_coefficient(R, r)
@@ -23,17 +23,30 @@ end
 function get_prices(tickers)
     path = "csv/"
     ticker = tickers[1]
-    df = get_dataframe(path = path, filename = ticker * ".csv", ticker = ticker)
+    df = get_dataframe(path = path, filename = ticker * ".csv", name = ticker)
 
     for i in 2:length(tickers)
         ticker = tickers[i]
         filename = ticker * ".csv"
 
-        ticker_df = get_dataframe(path = path, filename = filename, ticker = ticker)
+        ticker_df = get_dataframe(path = path, filename = filename, name = ticker)
         df = join(df, ticker_df, on = :Date, kind = :outer)
     end
 
     dropmissing!(df)
+end
+
+# Get market
+function get_market(index_ticker)
+    path = "csv/"
+
+    df_index = get_dataframe(path = path, filename = index_ticker * ".csv", name = "Price")
+    df_market = CSV.File(path * "market.csv") |> DataFrame
+    rename!(df_market, :Column1 => :Ticker)
+    rename!(df_market, :weight => :Weight)
+    df_market = df_market[:, [:Ticker, :Weight]]
+
+    return df_index, df_market
 end
 
 # Get returns
@@ -42,7 +55,7 @@ function calculate_daily_ticker_returns(prices, tickers)
 
     for ticker in tickers
         col = Symbol(ticker)
-        returns[!, col] = calculate_daily_returns(prices, col)
+        returns[!, col] = calculate_daily_returns(prices, col) .- 1
     end
 
     return returns
@@ -61,19 +74,18 @@ function calculate_returns(prices, col)
 end
 
 # Get CSV dataframe
-function get_dataframe(;path, filename, ticker)
+function get_dataframe(;path, filename, name)
     df = CSV.File(path * filename) |> DataFrame
 
-    return format_dataframe(df, ticker = ticker)
+    return format_dataframe(df, name = name)
 end
 
 # Format dataframe
-function format_dataframe(df; ticker, volume = false)
-    rename!(df, Symbol("Closing price") => :Close)
-
+function format_dataframe(df; name)
     df = df[:, [:Date, :Close]]
+    df = coalesce.(df, 0)
     df = df[(df.Close .!= 0), :]
-    rename!(df, :Close => Symbol(ticker))
+    rename!(df, :Close => Symbol(name))
     sort!(df, :Date)
 
     return df
