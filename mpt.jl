@@ -120,7 +120,7 @@ function variance_minimization_long(v, m, r, mu, sigma)
 end
 
 # Minimum Variance Portfolio
-function minimum_variance(v, mu, sigma)
+function minimum_variance(v, sigma)
     n = size(sigma)[1]
     o = ones(n, 1)
     sigma_inv = inv(sigma)
