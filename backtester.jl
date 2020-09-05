@@ -1,10 +1,12 @@
 module Backtester
 
 include("bl.jl")
+include("rb.jl")
+include("mpt.jl")
 include("capm.jl")
 include("utils.jl")
 
-using DataFrames, Dates, Printf, JSON, LinearAlgebra, Missings, Statistics, Cairo, Gadfly, .CAPM, .BL, .Utils
+using DataFrames, Dates, Printf, JSON, LinearAlgebra, Missings, Statistics, Cairo, Gadfly, .CAPM, .BL, .RB, .MPT, .Utils
 
 function black_litterman_strategy(tickers, assets, market, market_weights, initial_capital, initial_date; risk_free_rate = 0.05, tau = 0.05, long = false, normalize = false, verbose = true)
     shares = get_initial_shares(tickers, assets, initial_date)
@@ -13,10 +15,10 @@ function black_litterman_strategy(tickers, assets, market, market_weights, initi
     for date in dates
         println(date)
 
-        w_r, w = calculate_weights(tickers, assets, market, market_weights, date, risk_free_rate = risk_free_rate, tau = tau, long = long)
-        d = maximum(abs.([w_r; w]))
+        w_r, w = calculate_bl_weights(tickers, assets, market, market_weights, date, risk_free_rate = risk_free_rate, tau = tau, long = long)
 
         if normalize
+            d = maximum(abs.([w_r; w]))
             w_r /= d
             w /= d
         end
@@ -35,7 +37,30 @@ function black_litterman_strategy(tickers, assets, market, market_weights, initi
     return prices, shares, signals
 end
 
-function calculate_weights(tickers, assets, market, market_weights, date; risk_free_rate = 0.05, tau = 0.05, long = false)
+function risk_budgeting_strategy(tickers, assets, initial_capital, initial_date; verbose = true)
+    shares = get_initial_shares(tickers, assets, initial_date)
+    dates = get_dates(initial_date, assets)
+
+    for date in dates
+        println(date)
+
+        w_r, w = calculate_rb_weights(tickers, assets, date)
+
+        if verbose
+            print_weights(tickers, w_r, w)
+        end
+
+        prices = assets[assets.Date .>= date, :]
+        shares[shares.Date .>= date, :] .= calculate_shares(tickers, prices, initial_capital, w_r, w)
+    end
+
+    prices = assets[assets.Date .>= initial_date, :]
+    signals = calculate_signals(tickers, shares)
+    
+    return prices, shares, signals
+end
+
+function calculate_bl_weights(tickers, assets, market, market_weights, date; risk_free_rate = 0.05, tau = 0.05, long = false)
     _, _, _, historical_returns = get_assets_data(tickers, assets, date)
     _, _, w_market, market_returns = get_market_data(market, market_weights, date)
 
@@ -43,7 +68,18 @@ function calculate_weights(tickers, assets, market, market_weights, date; risk_f
 
     historical_returns_matrix = convert(Matrix, historical_returns[:, 2:end])
     
-    return allocate(historical_returns_matrix, market_returns, risk_free_rate, P, Q, tau, w_market, long = long)
+    return black_litterman(historical_returns_matrix, market_returns, risk_free_rate, P, Q, tau, w_market, long = long)
+end
+
+function calculate_rb_weights(tickers, assets, date)
+    _, _, _, historical_returns = get_assets_data(tickers, assets, date)
+
+    historical_returns_matrix = convert(Matrix, historical_returns[:, 2:end])
+
+    n = size(historical_returns_matrix, 2)
+    budget = (1/n) * ones(n)
+    
+    return 0, cvar_budgeting(historical_returns_matrix, budget)
 end
 
 function get_views(tickers, historical_returns; days = 30)
@@ -271,12 +307,13 @@ function run(tickers, first_date; long = false, normalize = false, verbose = tru
     initial_capital = 1000
     initial_date = get_initial_date(first_date, assets)
 
-    prices, shares, signals = black_litterman_strategy(tickers, assets, market, market_weights, initial_capital, initial_date; long = long, normalize = normalize, verbose = verbose)
+    # prices, shares, signals = black_litterman_strategy(tickers, assets, market, market_weights, initial_capital, initial_date; long = long, normalize = normalize, verbose = verbose)
+    prices, shares, signals = risk_budgeting_strategy(tickers, assets, initial_capital, initial_date; verbose = verbose)
     portfolio = get_portfolio(tickers, prices, shares, signals, initial_capital)
 
     future_market, _, _, _ = get_market_data(market, market_weights, initial_date)
     print_performance(portfolio)
-    plot_perfomance(portfolio, future_market)
+    # plot_perfomance(portfolio, future_market)
 end
 
 long = true
